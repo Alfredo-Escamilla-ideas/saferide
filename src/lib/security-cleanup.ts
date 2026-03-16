@@ -48,10 +48,9 @@ async function checkExpiredSessions(): Promise<SecurityReport["checks"][0]> {
 
     const { count, error } = await supabase
       .from("sessions")
-      .update({ active: false, invalidated_at: new Date().toISOString() })
+      .update({ active: false, invalidated_at: new Date().toISOString() }, { count: "exact" })
       .lt("last_activity", expiryTime.toISOString())
-      .eq("active", true)
-      .select("*", { count: "exact", head: true });
+      .eq("active", true);
 
     if (error) throw error;
 
@@ -121,10 +120,9 @@ async function checkStaleRides(): Promise<SecurityReport["checks"][0]> {
 
     const { count, error } = await supabase
       .from("rides")
-      .update({ status: "expired", updated_at: new Date().toISOString() })
+      .update({ status: "expired", updated_at: new Date().toISOString() }, { count: "exact" })
       .in("status", ["pending", "searching"])
-      .lt("created_at", expiryTime.toISOString())
-      .select("*", { count: "exact", head: true });
+      .lt("created_at", expiryTime.toISOString());
 
     if (error) throw error;
 
@@ -155,10 +153,9 @@ async function archiveOldAuditLogs(): Promise<SecurityReport["checks"][0]> {
 
     const { count, error } = await supabase
       .from("audit_logs")
-      .update({ archived: true })
+      .update({ archived: true }, { count: "exact" })
       .lt("created_at", retentionDate.toISOString())
-      .eq("archived", false)
-      .select("*", { count: "exact", head: true });
+      .eq("archived", false);
 
     if (error) throw error;
 
