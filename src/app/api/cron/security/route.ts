@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runSecurityCleanup } from "@/../../scripts/security-cleanup";
+import { runSecurityCleanup } from "@/lib/security-cleanup";
 
 // Vercel Cron: ejecutar cada hora
 // vercel.json → "crons": [{ "path": "/api/cron/security", "schedule": "0 * * * *" }]
