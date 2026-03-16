@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseCertificate, validateIssuer } from "@/lib/certificate";
 import { createSession } from "@/lib/session";
-import { supabaseAdmin } from "@/lib/supabase";
+import { devDB } from "@/lib/db-dev";
+
+const isDevMode = !process.env.NEXT_PUBLIC_SUPABASE_URL?.startsWith("https://");
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,12 +27,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Certificado no reconocido" }, { status: 400 });
     }
 
-    // Buscar usuaria por DNI
-    const { data: user } = await supabaseAdmin
-      .from("users")
-      .select("id, name, role, active, blocked")
-      .eq("dni", certData.dni)
-      .maybeSingle();
+    let user: { id: string; name: string; role: "driver" | "passenger"; active: boolean; blocked: boolean } | null = null;
+
+    if (isDevMode) {
+      user = devDB.users.findByDNI(certData.dni);
+      if (user) devDB.users.update(user.id, { last_login: new Date().toISOString() });
+    } else {
+      const { supabaseAdmin } = await import("@/lib/supabase");
+      const { data } = await supabaseAdmin
+        .from("users")
+        .select("id, name, role, active, blocked")
+        .eq("dni", certData.dni)
+        .maybeSingle();
+      user = data;
+      if (user) {
+        await supabaseAdmin.from("users").update({ last_login: new Date().toISOString() }).eq("id", user.id);
+      }
+    }
 
     if (!user) {
       return NextResponse.json(
@@ -40,24 +53,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (user.blocked) {
-      return NextResponse.json(
-        { error: "Tu cuenta ha sido bloqueada. Contacta con soporte." },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "Tu cuenta ha sido bloqueada. Contacta con soporte." }, { status: 403 });
     }
 
     if (!user.active) {
-      return NextResponse.json(
-        { error: "Tu cuenta está desactivada. Puede que tu certificado haya caducado." },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "Tu cuenta está desactivada. Puede que tu certificado haya caducado." }, { status: 403 });
     }
-
-    // Actualizar fecha de último login
-    await supabaseAdmin
-      .from("users")
-      .update({ last_login: new Date().toISOString() })
-      .eq("id", user.id);
 
     const token = await createSession({
       userId: user.id,
