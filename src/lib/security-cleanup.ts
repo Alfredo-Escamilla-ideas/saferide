@@ -6,10 +6,12 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 // ─── Configuración ────────────────────────────────────────────────────────────
 
@@ -46,7 +48,7 @@ async function checkExpiredSessions(): Promise<SecurityReport["checks"][0]> {
     const expiryTime = new Date();
     expiryTime.setHours(expiryTime.getHours() - CONFIG.SESSION_EXPIRY_HOURS);
 
-    const { count, error } = await supabase
+    const { count, error } = await getSupabase()
       .from("sessions")
       .update({ active: false, invalidated_at: new Date().toISOString() }, { count: "exact" })
       .lt("last_activity", expiryTime.toISOString())
@@ -74,7 +76,7 @@ async function checkExpiredSessions(): Promise<SecurityReport["checks"][0]> {
  */
 async function checkFailedLogins(): Promise<SecurityReport["checks"][0]> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from("login_attempts")
       .select("user_id, count")
       .gte("count", CONFIG.MAX_FAILED_LOGINS)
@@ -86,7 +88,7 @@ async function checkFailedLogins(): Promise<SecurityReport["checks"][0]> {
 
     if (blocked > 0) {
       const userIds = data!.map((r) => r.user_id);
-      await supabase
+      await getSupabase()
         .from("users")
         .update({ blocked: true, blocked_at: new Date().toISOString() })
         .in("id", userIds);
@@ -118,7 +120,7 @@ async function checkStaleRides(): Promise<SecurityReport["checks"][0]> {
     const expiryTime = new Date();
     expiryTime.setHours(expiryTime.getHours() - CONFIG.RIDE_EXPIRY_HOURS);
 
-    const { count, error } = await supabase
+    const { count, error } = await getSupabase()
       .from("rides")
       .update({ status: "expired", updated_at: new Date().toISOString() }, { count: "exact" })
       .in("status", ["pending", "searching"])
@@ -151,7 +153,7 @@ async function archiveOldAuditLogs(): Promise<SecurityReport["checks"][0]> {
       retentionDate.getDate() - CONFIG.AUDIT_LOG_RETENTION_DAYS
     );
 
-    const { count, error } = await supabase
+    const { count, error } = await getSupabase()
       .from("audit_logs")
       .update({ archived: true }, { count: "exact" })
       .lt("created_at", retentionDate.toISOString())
@@ -181,7 +183,7 @@ async function checkExpiredCertificates(): Promise<SecurityReport["checks"][0]> 
   try {
     const now = new Date().toISOString();
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from("users")
       .select("id")
       .eq("role", "driver")
@@ -194,7 +196,7 @@ async function checkExpiredCertificates(): Promise<SecurityReport["checks"][0]> 
 
     if (expired > 0) {
       const userIds = data!.map((u) => u.id);
-      await supabase
+      await getSupabase()
         .from("users")
         .update({
           active: false,
