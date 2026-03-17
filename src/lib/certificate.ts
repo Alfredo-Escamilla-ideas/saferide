@@ -89,7 +89,7 @@ export async function parseCertificate(
     const cert = bags[0].cert!;
 
     const cn = getAttribute(cert.subject, "CN");
-    const issuerCN = getAttribute(cert.issuer, "CN") || getAttribute(cert.issuer, "O");
+    const issuerCN = getAttribute(cert.issuer, "O") || getAttribute(cert.issuer, "CN");
 
     const now = new Date();
     const isValid = now >= cert.validity.notBefore && now <= cert.validity.notAfter;
