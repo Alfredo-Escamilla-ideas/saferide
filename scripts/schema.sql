@@ -1,58 +1,56 @@
--- SafeRide · Schema MySQL 8.0
+-- SafeRide · Schema PostgreSQL (Neon)
 
 CREATE TABLE IF NOT EXISTS users (
-  id           VARCHAR(36)  NOT NULL DEFAULT (UUID()) PRIMARY KEY,
-  name         VARCHAR(255) NOT NULL,
-  dni          VARCHAR(20)  NOT NULL UNIQUE,
-  phone        VARCHAR(20)  NOT NULL,
-  role         ENUM('driver','passenger') NOT NULL,
-  certificate_issuer      VARCHAR(100),
-  certificate_expires_at  DATETIME,
-  active       TINYINT(1)   NOT NULL DEFAULT 1,
-  blocked      TINYINT(1)   NOT NULL DEFAULT 0,
-  blocked_at   DATETIME,
-  last_login   DATETIME,
-  created_at   DATETIME     NOT NULL DEFAULT NOW()
+  id                     UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  name                   TEXT        NOT NULL,
+  dni                    TEXT        NOT NULL UNIQUE,
+  phone                  TEXT        NOT NULL,
+  role                   TEXT        NOT NULL CHECK (role IN ('driver','passenger')),
+  certificate_issuer     TEXT,
+  certificate_expires_at TIMESTAMPTZ,
+  active                 BOOLEAN     NOT NULL DEFAULT TRUE,
+  blocked                BOOLEAN     NOT NULL DEFAULT FALSE,
+  blocked_at             TIMESTAMPTZ,
+  last_login             TIMESTAMPTZ,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS vehicles (
-  id       VARCHAR(36)  NOT NULL DEFAULT (UUID()) PRIMARY KEY,
-  user_id  VARCHAR(36)  NOT NULL,
-  brand    VARCHAR(100) NOT NULL,
-  model    VARCHAR(100) NOT NULL,
-  plate    VARCHAR(20)  NOT NULL UNIQUE,
-  active   TINYINT(1)   NOT NULL DEFAULT 1,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  id       UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id  UUID  NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  brand    TEXT  NOT NULL,
+  model    TEXT  NOT NULL,
+  plate    TEXT  NOT NULL UNIQUE,
+  active   BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS rides (
-  id           VARCHAR(36)  NOT NULL DEFAULT (UUID()) PRIMARY KEY,
-  passenger_id VARCHAR(36)  NOT NULL,
-  driver_id    VARCHAR(36),
-  status       ENUM('pending','searching','accepted','in_progress','completed','cancelled','expired') NOT NULL DEFAULT 'pending',
-  origin       VARCHAR(255) NOT NULL,
-  destination  VARCHAR(255) NOT NULL,
-  price        DECIMAL(6,2),
-  created_at   DATETIME     NOT NULL DEFAULT NOW(),
-  updated_at   DATETIME     NOT NULL DEFAULT NOW() ON UPDATE NOW(),
-  FOREIGN KEY (passenger_id) REFERENCES users(id),
-  FOREIGN KEY (driver_id)    REFERENCES users(id)
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  passenger_id UUID NOT NULL REFERENCES users(id),
+  driver_id    UUID REFERENCES users(id),
+  status       TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending','searching','accepted','in_progress','completed','cancelled','expired')),
+  origin       TEXT NOT NULL,
+  destination  TEXT NOT NULL,
+  price        NUMERIC(6,2),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS login_attempts (
-  id         VARCHAR(36)  NOT NULL DEFAULT (UUID()) PRIMARY KEY,
-  user_id    VARCHAR(36),
-  dni        VARCHAR(20)  NOT NULL,
-  ip         VARCHAR(45),
-  success    TINYINT(1)   NOT NULL DEFAULT 0,
-  created_at DATETIME     NOT NULL DEFAULT NOW()
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID,
+  dni        TEXT NOT NULL,
+  ip         TEXT,
+  success    BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
-  id         VARCHAR(36)  NOT NULL DEFAULT (UUID()) PRIMARY KEY,
-  user_id    VARCHAR(36),
-  action     VARCHAR(100) NOT NULL,
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID,
+  action     TEXT NOT NULL,
   detail     TEXT,
-  archived   TINYINT(1)   NOT NULL DEFAULT 0,
-  created_at DATETIME     NOT NULL DEFAULT NOW()
+  archived   BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

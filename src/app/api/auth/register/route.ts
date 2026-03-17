@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseCertificate, validateIssuer } from "@/lib/certificate";
 import { createSession } from "@/lib/session";
-import pool from "@/lib/mysql";
-import { v4 as uuidv4 } from "uuid";
+import getDB from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,57 +38,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const conn = await pool.getConnection();
-    try {
-      // Comprobar si ya existe
-      const [existing] = await conn.execute(
-        "SELECT id FROM users WHERE dni = ?",
-        [certData.dni]
-      ) as any[];
-
-      if (existing.length > 0) {
-        return NextResponse.json(
-          { error: "Ya existe una cuenta registrada con este certificado digital" },
-          { status: 409 }
-        );
-      }
-
-      const userId = uuidv4();
-
-      await conn.execute(
-        `INSERT INTO users (id, name, dni, phone, role, certificate_issuer, certificate_expires_at, active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-        [userId, certData.commonName, certData.dni, phone, role, issuerCheck.entity, certData.validTo]
+    // Comprobar si ya existe
+    const existing = await getDB()`SELECT id FROM users WHERE dni = ${certData.dni}`;
+    if (existing.length > 0) {
+      return NextResponse.json(
+        { error: "Ya existe una cuenta registrada con este certificado digital" },
+        { status: 409 }
       );
-
-      if (role === "driver" && vehicleBrand && vehicleModel && vehiclePlate) {
-        await conn.execute(
-          `INSERT INTO vehicles (id, user_id, brand, model, plate, active)
-           VALUES (?, ?, ?, ?, ?, 1)`,
-          [uuidv4(), userId, vehicleBrand, vehicleModel, vehiclePlate.toUpperCase()]
-        );
-      }
-
-      const token = await createSession({
-        userId,
-        dni: certData.dni,
-        name: certData.commonName,
-        role,
-      });
-
-      const response = NextResponse.json({ success: true, name: certData.commonName, role });
-      response.cookies.set("saferide_session", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 60 * 60 * 24,
-        path: "/",
-      });
-
-      return response;
-    } finally {
-      conn.release();
     }
+
+    // Crear usuaria
+    const [newUser] = await getDB()`
+      INSERT INTO users (name, dni, phone, role, certificate_issuer, certificate_expires_at)
+      VALUES (${certData.commonName}, ${certData.dni}, ${phone}, ${role}, ${issuerCheck.entity}, ${certData.validTo})
+      RETURNING id
+    `;
+
+    if (role === "driver" && vehicleBrand && vehicleModel && vehiclePlate) {
+      await getDB()`
+        INSERT INTO vehicles (user_id, brand, model, plate)
+        VALUES (${newUser.id}, ${vehicleBrand}, ${vehicleModel}, ${vehiclePlate.toUpperCase()})
+      `;
+    }
+
+    const token = await createSession({
+      userId: newUser.id,
+      dni: certData.dni,
+      name: certData.commonName,
+      role,
+    });
+
+    const response = NextResponse.json({ success: true, name: certData.commonName, role });
+    response.cookies.set("saferide_session", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24,
+      path: "/",
+    });
+
+    return response;
   } catch (err) {
     console.error("Error en registro:", err);
     return NextResponse.json(
