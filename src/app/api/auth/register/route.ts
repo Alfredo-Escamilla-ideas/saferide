@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseCertificate, validateIssuer } from "@/lib/certificate";
 import { createSession } from "@/lib/session";
-import { devDB } from "@/lib/db-dev";
-
-const isDevMode = !process.env.NEXT_PUBLIC_SUPABASE_URL?.startsWith("https://");
-
-async function getDB() {
-  if (isDevMode) return null;
-  const { supabaseAdmin } = await import("@/lib/supabase");
-  return supabaseAdmin;
-}
+import pool from "@/lib/mysql";
+import { v4 as uuidv4 } from "uuid";
 
 export async function POST(request: NextRequest) {
   try {
@@ -46,105 +39,57 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let newUserId: string;
+    const conn = await pool.getConnection();
+    try {
+      // Comprobar si ya existe
+      const [existing] = await conn.execute(
+        "SELECT id FROM users WHERE dni = ?",
+        [certData.dni]
+      ) as any[];
 
-    if (isDevMode) {
-      // ── Modo desarrollo: JSON local ──────────────────────────────────
-      const existing = devDB.users.findByDNI(certData.dni);
-      if (existing) {
+      if (existing.length > 0) {
         return NextResponse.json(
           { error: "Ya existe una cuenta registrada con este certificado digital" },
           { status: 409 }
         );
       }
 
-      const newUser = devDB.users.insert({
-        name: certData.commonName,
+      const userId = uuidv4();
+
+      await conn.execute(
+        `INSERT INTO users (id, name, dni, phone, role, certificate_issuer, certificate_expires_at, active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+        [userId, certData.commonName, certData.dni, phone, role, issuerCheck.entity, certData.validTo]
+      );
+
+      if (role === "driver" && vehicleBrand && vehicleModel && vehiclePlate) {
+        await conn.execute(
+          `INSERT INTO vehicles (id, user_id, brand, model, plate, active)
+           VALUES (?, ?, ?, ?, ?, 1)`,
+          [uuidv4(), userId, vehicleBrand, vehicleModel, vehiclePlate.toUpperCase()]
+        );
+      }
+
+      const token = await createSession({
+        userId,
         dni: certData.dni,
-        phone,
+        name: certData.commonName,
         role,
-        certificate_issuer: issuerCheck.entity,
-        certificate_expires_at: certData.validTo.toISOString(),
-        active: true,
       });
 
-      if (role === "driver" && vehicleBrand && vehicleModel && vehiclePlate) {
-        devDB.vehicles.insert({
-          user_id: newUser.id,
-          brand: vehicleBrand,
-          model: vehicleModel,
-          plate: vehiclePlate.toUpperCase(),
-          active: true,
-        });
-      }
+      const response = NextResponse.json({ success: true, name: certData.commonName, role });
+      response.cookies.set("saferide_session", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 60 * 60 * 24,
+        path: "/",
+      });
 
-      newUserId = newUser.id;
-    } else {
-      // ── Producción: Supabase ─────────────────────────────────────────
-      const db = await getDB();
-
-      const { data: existing } = await db!
-        .from("users")
-        .select("id")
-        .eq("dni", certData.dni)
-        .maybeSingle();
-
-      if (existing) {
-        return NextResponse.json(
-          { error: "Ya existe una cuenta registrada con este certificado digital" },
-          { status: 409 }
-        );
-      }
-
-      const { data: newUser, error: insertError } = await db!
-        .from("users")
-        .insert({
-          name: certData.commonName,
-          dni: certData.dni,
-          phone,
-          role,
-          certificate_issuer: issuerCheck.entity,
-          certificate_expires_at: certData.validTo.toISOString(),
-          active: true,
-        })
-        .select("id")
-        .single();
-
-      if (insertError || !newUser) {
-        console.error("Error al crear usuaria:", insertError);
-        return NextResponse.json({ error: "Error al crear la cuenta" }, { status: 500 });
-      }
-
-      if (role === "driver" && vehicleBrand && vehicleModel && vehiclePlate) {
-        await db!.from("vehicles").insert({
-          user_id: newUser.id,
-          brand: vehicleBrand,
-          model: vehicleModel,
-          plate: vehiclePlate.toUpperCase(),
-          active: true,
-        });
-      }
-
-      newUserId = newUser.id;
+      return response;
+    } finally {
+      conn.release();
     }
-
-    const token = await createSession({
-      userId: newUserId,
-      dni: certData.dni,
-      name: certData.commonName,
-      role,
-    });
-
-    const response = NextResponse.json({ success: true, name: certData.commonName, role });
-    response.cookies.set("saferide_session", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24,
-      path: "/",
-    });
-
-    return response;
   } catch (err) {
     console.error("Error en registro:", err);
     return NextResponse.json(
